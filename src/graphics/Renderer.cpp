@@ -221,6 +221,7 @@ const Graphics::gres_t *Renderer::getResolutions(bool full_list)
          {(char *)"640x480", 640, 480, 320, 240, 2, false, true},
          //        {(char*)"800x600",   800,      600,      320,      240,      2.5,          false,      true },
          //        //requires float scalefactor
+         {(char *)"854x480", 854, 480, 427, 240, 2, true, true},
          {(char *)"1024x768", 1024, 768, 341, 256, 3, false, true},
          {(char *)"1280x1024", 1280, 1024, 320, 256, 4, false, true},
          {(char *)"1600x1200", 1600, 1200, 320, 240, 5, false, true},
