@@ -37,36 +37,43 @@ jobs:
             libjpeg-dev libpng-dev \
             patchelf desktop-file-utils \
             libgdk-pixbuf2.0-dev fakeroot \
-            curl squashfs-tools file
+            squashfs-tools file
 
-      # ── 3. linuxdeploy + appimagetool 다운로드 ────────────────────────
-      # wget 대신 curl -L 사용 (GitHub redirect 안정적으로 처리)
-      # 고정 릴리즈 태그 사용으로 URL 변경 문제 방지
-      - name: Download linuxdeploy and appimagetool
+      # ── 3. linuxdeploy + appimagetool 다운로드 (gh CLI 사용) ──────────
+      # curl/wget 대신 gh release download 사용 → GitHub token 인증으로 안정적
+      - name: Download linuxdeploy
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # linuxdeploy (고정 릴리즈)
-          curl -fsSL -o linuxdeploy-x86_64.AppImage \
-            "https://github.com/linuxdeploy/linuxdeploy/releases/download/1-alpha-20250213-2/linuxdeploy-x86_64.AppImage"
-
-          # linuxdeploy SDL2 플러그인
-          curl -fsSL -o linuxdeploy-plugin-sdl2-x86_64.AppImage \
-            "https://github.com/linuxdeploy/linuxdeploy-plugin-sdl2/releases/download/continuous/linuxdeploy-plugin-sdl2-x86_64.AppImage"
-
-          # appimagetool
-          curl -fsSL -o appimagetool-x86_64.AppImage \
-            "https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage"
-
-          chmod +x linuxdeploy-x86_64.AppImage \
-                   linuxdeploy-plugin-sdl2-x86_64.AppImage \
-                   appimagetool-x86_64.AppImage
-
-          # GitHub Actions는 FUSE 미지원 → --appimage-extract로 압축 해제 후 실행
+          gh release download continuous \
+            --repo linuxdeploy/linuxdeploy \
+            --pattern "linuxdeploy-x86_64.AppImage" \
+            --output linuxdeploy-x86_64.AppImage
+          chmod +x linuxdeploy-x86_64.AppImage
           ./linuxdeploy-x86_64.AppImage --appimage-extract
           mv squashfs-root linuxdeploy
 
+      - name: Download linuxdeploy SDL2 plugin
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release download continuous \
+            --repo linuxdeploy/linuxdeploy-plugin-sdl2 \
+            --pattern "linuxdeploy-plugin-sdl2-x86_64.AppImage" \
+            --output linuxdeploy-plugin-sdl2-x86_64.AppImage
+          chmod +x linuxdeploy-plugin-sdl2-x86_64.AppImage
           ./linuxdeploy-plugin-sdl2-x86_64.AppImage --appimage-extract
           mv squashfs-root linuxdeploy-plugin-sdl2
 
+      - name: Download appimagetool
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release download continuous \
+            --repo AppImage/appimagetool \
+            --pattern "appimagetool-x86_64.AppImage" \
+            --output appimagetool-x86_64.AppImage
+          chmod +x appimagetool-x86_64.AppImage
           ./appimagetool-x86_64.AppImage --appimage-extract
           mv squashfs-root appimagetool
 
@@ -92,15 +99,12 @@ jobs:
           mkdir -p AppDir/usr/share/applications
           mkdir -p AppDir/usr/share/icons/hicolor/256x256/apps
 
-          # 바이너리 복사
           cp build/nxengine-evo AppDir/usr/bin/nxengine-evo
 
-          # data 디렉터리 복사
           if [ -d data ]; then
             cp -r data AppDir/usr/share/nxengine/
           fi
 
-          # .desktop 파일 생성
           cat > AppDir/usr/share/applications/org.nxengine.nxengine_evo.desktop << 'EOF'
           [Desktop Entry]
           Name=Cave Story (NXEngine Evo)
@@ -110,7 +114,6 @@ jobs:
           Categories=Game;
           EOF
 
-          # 아이콘 복사
           if [ -f platform/linux/org.nxengine.nxengine_evo.png ]; then
             cp platform/linux/org.nxengine.nxengine_evo.png \
                AppDir/usr/share/icons/hicolor/256x256/apps/org.nxengine.nxengine_evo.png
@@ -123,20 +126,18 @@ jobs:
       - name: Bundle libraries with linuxdeploy
         run: |
           export PATH="$PWD/linuxdeploy-plugin-sdl2/usr/bin:$PATH"
-
           ./linuxdeploy/AppRun \
             --appdir AppDir \
             --executable AppDir/usr/bin/nxengine-evo \
             --desktop-file "AppDir/usr/share/applications/org.nxengine.nxengine_evo.desktop" \
             --icon-file "AppDir/usr/share/icons/hicolor/256x256/apps/org.nxengine.nxengine_evo.png" \
             --plugin sdl2
-          # --output appimage 없이 실행 → AppDir에 라이브러리만 번들링
 
-      # ── 7. appimagetool로 AppImage 최종 생성 ─────────────────────────
+      # ── 7. AppImage 최종 생성 ─────────────────────────────────────────
       - name: Create AppImage
         run: |
           ARCH=x86_64 ./appimagetool/AppRun AppDir "${{ env.OUTPUT }}"
-          echo "✅ 생성된 AppImage: $(ls ${{ env.OUTPUT }})"
+          echo "✅ 생성: $(ls ${{ env.OUTPUT }})"
 
       # ── 8. 아티팩트 업로드 ───────────────────────────────────────────
       - name: Upload AppImage artifact
