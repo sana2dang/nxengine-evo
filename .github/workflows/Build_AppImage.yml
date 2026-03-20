@@ -37,21 +37,38 @@ jobs:
             libjpeg-dev libpng-dev \
             patchelf desktop-file-utils \
             libgdk-pixbuf2.0-dev fakeroot \
-            wget curl squashfs-tools file
+            curl squashfs-tools file
 
       # ── 3. linuxdeploy + appimagetool 다운로드 ────────────────────────
-      # appimage-builder 대신 공식 linuxdeploy 툴체인 사용
-      # GitHub Actions는 FUSE 미지원 → --appimage-extract로 압축 해제 후 사용
+      # wget 대신 curl -L 사용 (GitHub redirect 안정적으로 처리)
+      # 고정 릴리즈 태그 사용으로 URL 변경 문제 방지
       - name: Download linuxdeploy and appimagetool
         run: |
-          wget -q "https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage"
-          wget -q "https://github.com/linuxdeploy/linuxdeploy-plugin-sdl2/releases/download/continuous/linuxdeploy-plugin-sdl2-x86_64.AppImage"
-          wget -q "https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage"
-          chmod +x linuxdeploy-x86_64.AppImage linuxdeploy-plugin-sdl2-x86_64.AppImage appimagetool-x86_64.AppImage
+          # linuxdeploy (고정 릴리즈)
+          curl -fsSL -o linuxdeploy-x86_64.AppImage \
+            "https://github.com/linuxdeploy/linuxdeploy/releases/download/1-alpha-20250213-2/linuxdeploy-x86_64.AppImage"
 
-          ./linuxdeploy-x86_64.AppImage --appimage-extract            && mv squashfs-root linuxdeploy
-          ./linuxdeploy-plugin-sdl2-x86_64.AppImage --appimage-extract && mv squashfs-root linuxdeploy-plugin-sdl2
-          ./appimagetool-x86_64.AppImage --appimage-extract            && mv squashfs-root appimagetool
+          # linuxdeploy SDL2 플러그인
+          curl -fsSL -o linuxdeploy-plugin-sdl2-x86_64.AppImage \
+            "https://github.com/linuxdeploy/linuxdeploy-plugin-sdl2/releases/download/continuous/linuxdeploy-plugin-sdl2-x86_64.AppImage"
+
+          # appimagetool
+          curl -fsSL -o appimagetool-x86_64.AppImage \
+            "https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage"
+
+          chmod +x linuxdeploy-x86_64.AppImage \
+                   linuxdeploy-plugin-sdl2-x86_64.AppImage \
+                   appimagetool-x86_64.AppImage
+
+          # GitHub Actions는 FUSE 미지원 → --appimage-extract로 압축 해제 후 실행
+          ./linuxdeploy-x86_64.AppImage --appimage-extract
+          mv squashfs-root linuxdeploy
+
+          ./linuxdeploy-plugin-sdl2-x86_64.AppImage --appimage-extract
+          mv squashfs-root linuxdeploy-plugin-sdl2
+
+          ./appimagetool-x86_64.AppImage --appimage-extract
+          mv squashfs-root appimagetool
 
       # ── 4. CMake 빌드 ─────────────────────────────────────────────────
       - name: Configure CMake
@@ -93,19 +110,17 @@ jobs:
           Categories=Game;
           EOF
 
-          # 아이콘: platform/linux 또는 screenshot.png 사용
-          ICON_SRC=""
+          # 아이콘 복사
           if [ -f platform/linux/org.nxengine.nxengine_evo.png ]; then
-            ICON_SRC="platform/linux/org.nxengine.nxengine_evo.png"
+            cp platform/linux/org.nxengine.nxengine_evo.png \
+               AppDir/usr/share/icons/hicolor/256x256/apps/org.nxengine.nxengine_evo.png
           elif [ -f screenshot.png ]; then
-            ICON_SRC="screenshot.png"
-          fi
-          if [ -n "$ICON_SRC" ]; then
-            cp "$ICON_SRC" AppDir/usr/share/icons/hicolor/256x256/apps/org.nxengine.nxengine_evo.png
+            cp screenshot.png \
+               AppDir/usr/share/icons/hicolor/256x256/apps/org.nxengine.nxengine_evo.png
           fi
 
-      # ── 6. linuxdeploy로 의존 라이브러리 번들링 + AppImage 생성 ───────
-      - name: Bundle and package AppImage
+      # ── 6. 의존 라이브러리 번들링 ─────────────────────────────────────
+      - name: Bundle libraries with linuxdeploy
         run: |
           export PATH="$PWD/linuxdeploy-plugin-sdl2/usr/bin:$PATH"
 
@@ -115,20 +130,13 @@ jobs:
             --desktop-file "AppDir/usr/share/applications/org.nxengine.nxengine_evo.desktop" \
             --icon-file "AppDir/usr/share/icons/hicolor/256x256/apps/org.nxengine.nxengine_evo.png" \
             --plugin sdl2
+          # --output appimage 없이 실행 → AppDir에 라이브러리만 번들링
 
-          # linuxdeploy가 AppImage를 만들지 않았을 경우 appimagetool로 직접 생성
-          if ! ls *.AppImage 2>/dev/null | grep -qv "linuxdeploy\|plugin\|appimagetool"; then
-            ARCH=x86_64 ./appimagetool/AppRun AppDir "${{ env.OUTPUT }}"
-          fi
-
-      # ── 7. 파일명 통일 ────────────────────────────────────────────────
-      - name: Rename AppImage
+      # ── 7. appimagetool로 AppImage 최종 생성 ─────────────────────────
+      - name: Create AppImage
         run: |
-          FOUND=$(ls *.AppImage 2>/dev/null | grep -v "linuxdeploy\|plugin\|appimagetool" | head -n1)
-          if [ -n "$FOUND" ] && [ "$FOUND" != "${{ env.OUTPUT }}" ]; then
-            mv "$FOUND" "${{ env.OUTPUT }}"
-          fi
-          echo "✅ AppImage: $(ls ${{ env.OUTPUT }})"
+          ARCH=x86_64 ./appimagetool/AppRun AppDir "${{ env.OUTPUT }}"
+          echo "✅ 생성된 AppImage: $(ls ${{ env.OUTPUT }})"
 
       # ── 8. 아티팩트 업로드 ───────────────────────────────────────────
       - name: Upload AppImage artifact
