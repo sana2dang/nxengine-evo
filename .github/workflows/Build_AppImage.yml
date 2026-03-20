@@ -20,7 +20,7 @@ env:
 jobs:
   build-appimage:
     name: Build AppImage (Linux x86_64)
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-22.04
 
     steps:
       # ── 1. 소스 체크아웃 ──────────────────────────────────────────────
@@ -39,11 +39,13 @@ jobs:
             libjpeg-dev libpng-dev \
             python3-pip python3-setuptools patchelf \
             desktop-file-utils libgdk-pixbuf2.0-dev fakeroot \
-            wget curl
+            wget curl squashfs-tools
 
       # ── 3. appimage-builder 설치 ──────────────────────────────────────
+      # ubuntu-22.04 환경에서는 pip 직접 설치 사용
       - name: Install appimage-builder
         run: |
+          pip3 install --break-system-packages appimage-builder==1.1.0 || \
           pip3 install appimage-builder==1.1.0
 
       # ── 4. CMake 빌드 (AppDir 구조로 설치) ───────────────────────────
