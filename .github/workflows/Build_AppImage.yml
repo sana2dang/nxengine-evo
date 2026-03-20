@@ -42,13 +42,67 @@ jobs:
             squashfs-tools file \
             python3-pip libxml2-utils
 
-      # ── 3. appimage-builder 설치 (build-appimage.sh 와 동일한 v1.1.0) ─
-      - name: Install appimage-builder v1.1.0
+      # ── 3. appimage-builder 설치 후 ld-linux 복사 버그 패치 ───────────
+      # appimage-builder 1.1.0은 ubuntu-22.04에서 /lib64/ld-linux-x86-64.so.2를
+      # shutil.copy2()로 복사할 때 PermissionError 발생 (알려진 버그)
+      # deploy_helper.py의 _deploy_path()에서 대상 파일이 이미 존재하면
+      # 건너뛰도록 패치
+      - name: Install appimage-builder and patch ld-linux bug
         run: |
           pip3 install appimage-builder==1.1.0
 
-      # ── 4. CMake 빌드 (build-appimage.sh 와 동일한 옵션) ──────────────
-      # PREFIX=/usr + DESTDIR=AppDir 조합 → AppDir/usr/ 구조 자동 생성
+          # deploy_helper.py 위치 찾기
+          DEPLOY_HELPER=$(python3 -c "
+          import appimagebuilder.modules.deploy.files.deploy_helper as m
+          import inspect, os
+          print(os.path.abspath(inspect.getfile(m)))
+          ")
+          echo "Patching: $DEPLOY_HELPER"
+
+          # _deploy_path 메서드에 "이미 존재하면 skip" 로직 삽입
+          python3 << 'PYEOF'
+          import re
+
+          path = __import__('subprocess').check_output([
+              'python3', '-c',
+              'import appimagebuilder.modules.deploy.files.deploy_helper as m, inspect, os; print(os.path.abspath(inspect.getfile(m)))'
+          ]).decode().strip()
+
+          with open(path, 'r') as f:
+              src = f.read()
+
+          # _deploy_path 메서드 내부에서 shutil.copy2 호출 전에 존재 확인 추가
+          old = '        shutil.copy2(path, deploy_path)'
+          new = (
+              '        if os.path.exists(deploy_path):\n'
+              '            return\n'
+              '        shutil.copy2(path, deploy_path)'
+          )
+
+          if old in src:
+              src = src.replace(old, new)
+              # os import 확인 후 없으면 추가
+              if 'import os' not in src:
+                  src = 'import os\n' + src
+              with open(path, 'w') as f:
+                  f.write(src)
+              print(f"Patched successfully: {path}")
+          else:
+              print("Pattern not found - checking file content:")
+              print(src[src.find('def _deploy_path'):src.find('def _deploy_path')+300])
+          PYEOF
+
+      # ── 4. ld-linux를 AppDir에 미리 복사 (sudo로 권한 확보) ──────────
+      # 패치된 deploy_helper가 기존 파일 발견 시 skip하도록
+      - name: Pre-copy ld-linux with sudo
+        run: |
+          mkdir -p AppDir/lib64
+          sudo cp -a /lib64/ld-linux-x86-64.so.2 AppDir/lib64/ld-linux-x86-64.so.2
+          sudo chmod 755 AppDir/lib64/ld-linux-x86-64.so.2
+          sudo chown runner:runner AppDir/lib64/ld-linux-x86-64.so.2
+          ls -la AppDir/lib64/
+
+      # ── 5. CMake 빌드 (build-appimage.sh 와 동일한 옵션) ──────────────
       - name: Configure CMake
         run: |
           cmake \
@@ -62,34 +116,22 @@ jobs:
       - name: Build
         run: ninja -C build -j$(nproc)
 
-      # ── 5. AppDir 생성 (build-appimage.sh 와 동일) ────────────────────
+      # ── 6. AppDir 생성 (build-appimage.sh 와 동일) ────────────────────
       - name: Install into AppDir
         run: |
-          rm -rf AppDir
+          rm -rf AppDir/usr
           DESTDIR=AppDir ninja -C build install
 
-      # ── 6. data 파일을 bin 옆에 복사 (build-appimage.sh 핵심 로직) ────
-      # cp -r AppDir/usr/share/nxengine/data/ AppDir/usr/bin/
+      # ── 7. data 파일을 bin 옆에 복사 (build-appimage.sh 핵심 로직) ────
       - name: Copy data next to binary
         run: |
           if [ -d "AppDir/usr/share/nxengine/data" ]; then
             cp -r AppDir/usr/share/nxengine/data/ AppDir/usr/bin/
             echo "data copied to usr/bin/"
           else
-            echo "data folder not found, checking AppDir structure:"
+            echo "data folder not found, AppDir structure:"
             find AppDir -type d | sort
           fi
-
-      # ── 7. ld-linux 권한 문제 사전 해결 ─────────────────────────────
-      # appimage-builder 1.1.0이 ubuntu-22.04에서 /lib64/ld-linux-x86-64.so.2를
-      # 복사할 때 PermissionError 발생 → sudo로 미리 복사 후 소유권 변경하여 우회
-      - name: Pre-copy ld-linux to AppDir (permission workaround)
-        run: |
-          mkdir -p AppDir/lib64
-          sudo cp -a /lib64/ld-linux-x86-64.so.2 AppDir/lib64/ld-linux-x86-64.so.2
-          sudo chmod 755 AppDir/lib64/ld-linux-x86-64.so.2
-          sudo chown runner:runner AppDir/lib64/ld-linux-x86-64.so.2
-          echo "ld-linux-x86-64.so.2 pre-copied successfully"
 
       # ── 8. AppImage 빌드 (AppImageBuilder.yml 레시피 사용) ────────────
       - name: Build AppImage
