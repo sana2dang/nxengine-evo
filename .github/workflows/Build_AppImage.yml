@@ -39,8 +39,9 @@ jobs:
             libgdk-pixbuf2.0-dev fakeroot \
             squashfs-tools file
 
-      # ── 3. linuxdeploy + appimagetool 다운로드 (gh CLI 사용) ──────────
-      # curl/wget 대신 gh release download 사용 → GitHub token 인증으로 안정적
+      # ── 3. linuxdeploy 다운로드 (gh CLI 사용) ─────────────────────────
+      # linuxdeploy-plugin-sdl2는 존재하지 않음
+      # linuxdeploy가 자동으로 SDL2 .so 라이브러리를 탐지해서 번들링함
       - name: Download linuxdeploy
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -50,20 +51,9 @@ jobs:
             --pattern "linuxdeploy-x86_64.AppImage" \
             --output linuxdeploy-x86_64.AppImage
           chmod +x linuxdeploy-x86_64.AppImage
+          # GitHub Actions는 FUSE 미지원 → extract 후 사용
           ./linuxdeploy-x86_64.AppImage --appimage-extract
           mv squashfs-root linuxdeploy
-
-      - name: Download linuxdeploy SDL2 plugin
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          gh release download continuous \
-            --repo linuxdeploy/linuxdeploy-plugin-sdl2 \
-            --pattern "linuxdeploy-plugin-sdl2-x86_64.AppImage" \
-            --output linuxdeploy-plugin-sdl2-x86_64.AppImage
-          chmod +x linuxdeploy-plugin-sdl2-x86_64.AppImage
-          ./linuxdeploy-plugin-sdl2-x86_64.AppImage --appimage-extract
-          mv squashfs-root linuxdeploy-plugin-sdl2
 
       - name: Download appimagetool
         env:
@@ -123,15 +113,15 @@ jobs:
           fi
 
       # ── 6. 의존 라이브러리 번들링 ─────────────────────────────────────
+      # linuxdeploy가 nxengine-evo 바이너리의 SDL2, libpng 등
+      # 모든 .so 의존성을 자동 탐지하여 AppDir/usr/lib 에 복사
       - name: Bundle libraries with linuxdeploy
         run: |
-          export PATH="$PWD/linuxdeploy-plugin-sdl2/usr/bin:$PATH"
           ./linuxdeploy/AppRun \
             --appdir AppDir \
             --executable AppDir/usr/bin/nxengine-evo \
             --desktop-file "AppDir/usr/share/applications/org.nxengine.nxengine_evo.desktop" \
-            --icon-file "AppDir/usr/share/icons/hicolor/256x256/apps/org.nxengine.nxengine_evo.png" \
-            --plugin sdl2
+            --icon-file "AppDir/usr/share/icons/hicolor/256x256/apps/org.nxengine.nxengine_evo.png"
 
       # ── 7. AppImage 최종 생성 ─────────────────────────────────────────
       - name: Create AppImage
