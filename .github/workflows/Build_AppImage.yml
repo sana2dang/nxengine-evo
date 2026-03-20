@@ -1,0 +1,113 @@
+name: Build Linux AppImage
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Build version (e.g. 2.6.5-1)'
+        required: true
+        default: '2.6.5-1'
+
+env:
+  APP_ID: org.nxengine.nxengine_evo
+  APP_VERSION: ${{ github.event.inputs.version || '2.6.5-1' }}
+  PLATFORM_SUFFIX: x86_64
+  OUTPUT: NXEngine-Evo-v${{ github.event.inputs.version || '2.6.5-1' }}-Linux-x86_64.AppImage
+
+jobs:
+  build-appimage:
+    name: Build AppImage (Linux x86_64)
+    runs-on: ubuntu-20.04
+
+    steps:
+      # ── 1. 소스 체크아웃 ──────────────────────────────────────────────
+      - name: Checkout source
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      # ── 2. 빌드 의존성 설치 ───────────────────────────────────────────
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -yqq \
+            cmake ninja-build \
+            libsdl2-dev libsdl2-mixer-dev libsdl2-image-dev \
+            libjpeg-dev libpng-dev \
+            python3-pip python3-setuptools patchelf \
+            desktop-file-utils libgdk-pixbuf2.0-dev fakeroot \
+            wget curl
+
+      # ── 3. appimage-builder 설치 ──────────────────────────────────────
+      - name: Install appimage-builder
+        run: |
+          pip3 install appimage-builder==1.1.0
+
+      # ── 4. CMake 빌드 (AppDir 구조로 설치) ───────────────────────────
+      - name: Configure CMake
+        run: |
+          cmake \
+            -GNinja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DPORTABLE=ON \
+            -DCMAKE_INSTALL_PREFIX=build/AppDir/usr \
+            -B build \
+            -S .
+
+      - name: Build
+        run: ninja -C build -j$(nproc)
+
+      - name: Install into AppDir
+        run: ninja -C build install
+
+      # ── 5. AppDir 구조 확인 및 보정 ───────────────────────────────────
+      - name: Prepare AppDir structure
+        run: |
+          mkdir -p build/AppDir/usr/share/nxengine
+          # data 디렉터리가 있으면 AppDir 안으로 복사
+          if [ -d data ]; then
+            cp -r data build/AppDir/usr/share/nxengine/
+          fi
+
+      # ── 6. AppImage 빌드 ──────────────────────────────────────────────
+      - name: Build AppImage
+        env:
+          APP_ID: ${{ env.APP_ID }}
+          APP_VERSION: ${{ env.APP_VERSION }}
+          PLATFORM_SUFFIX: ${{ env.PLATFORM_SUFFIX }}
+          OUTPUT: ${{ env.OUTPUT }}
+        run: |
+          appimage-builder --recipe AppImageBuilder.yml --skip-test
+
+      # ── 7. 산출물 이름 통일 ───────────────────────────────────────────
+      - name: Rename AppImage if needed
+        run: |
+          EXPECTED="${{ env.OUTPUT }}"
+          FOUND=$(find . -maxdepth 1 -name "*.AppImage" | head -n1)
+          if [ -n "$FOUND" ] && [ "$FOUND" != "./$EXPECTED" ]; then
+            mv "$FOUND" "$EXPECTED"
+          fi
+          echo "AppImage: $(ls *.AppImage)"
+
+      # ── 8. 빌드 아티팩트 업로드 ──────────────────────────────────────
+      - name: Upload AppImage artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.OUTPUT }}
+          path: ${{ env.OUTPUT }}
+          retention-days: 30
+
+      # ── 9. 태그 푸시 시 GitHub Release 자동 생성 ──────────────────────
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          prerelease: false
+          files: ${{ env.OUTPUT }}
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
