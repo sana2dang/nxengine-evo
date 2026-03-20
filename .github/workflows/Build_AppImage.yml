@@ -7,13 +7,15 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Build version (e.g. 2.6.5-1)'
+        description: 'Build version (e.g. v2.6.5-1)'
         required: true
-        default: '2.6.5-1'
+        default: 'v2.6.5-1'
 
 env:
-  APP_VERSION: ${{ github.event.inputs.version || '2.6.5-1' }}
-  OUTPUT: NXEngine-Evo-v${{ github.event.inputs.version || '2.6.5-1' }}-Linux-x86_64.AppImage
+  APP_ID: org.nxengine.nxengine_evo
+  APP_VERSION: ${{ github.event.inputs.version || 'v2.6.5-1' }}
+  PLATFORM_SUFFIX: x86_64
+  OUTPUT: NXEngine-Evo-${{ github.event.inputs.version || 'v2.6.5-1' }}-Linux-x86_64.AppImage
 
 jobs:
   build-appimage:
@@ -37,37 +39,16 @@ jobs:
             libjpeg-dev libpng-dev \
             patchelf desktop-file-utils \
             libgdk-pixbuf2.0-dev fakeroot \
-            squashfs-tools file
+            squashfs-tools file \
+            python3-pip libxml2-utils
 
-      # ── 3. linuxdeploy 다운로드 (gh CLI 사용) ─────────────────────────
-      # linuxdeploy-plugin-sdl2는 존재하지 않음
-      # linuxdeploy가 자동으로 SDL2 .so 라이브러리를 탐지해서 번들링함
-      - name: Download linuxdeploy
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # ── 3. appimage-builder 설치 (build-appimage.sh 와 동일한 v1.1.0) ─
+      - name: Install appimage-builder v1.1.0
         run: |
-          gh release download continuous \
-            --repo linuxdeploy/linuxdeploy \
-            --pattern "linuxdeploy-x86_64.AppImage" \
-            --output linuxdeploy-x86_64.AppImage
-          chmod +x linuxdeploy-x86_64.AppImage
-          # GitHub Actions는 FUSE 미지원 → extract 후 사용
-          ./linuxdeploy-x86_64.AppImage --appimage-extract
-          mv squashfs-root linuxdeploy
+          pip3 install appimage-builder==1.1.0
 
-      - name: Download appimagetool
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          gh release download continuous \
-            --repo AppImage/appimagetool \
-            --pattern "appimagetool-x86_64.AppImage" \
-            --output appimagetool-x86_64.AppImage
-          chmod +x appimagetool-x86_64.AppImage
-          ./appimagetool-x86_64.AppImage --appimage-extract
-          mv squashfs-root appimagetool
-
-      # ── 4. CMake 빌드 ─────────────────────────────────────────────────
+      # ── 4. CMake 빌드 (build-appimage.sh 와 동일한 옵션) ──────────────
+      # PREFIX=/usr + DESTDIR=AppDir 조합 → AppDir/usr/ 구조 자동 생성
       - name: Configure CMake
         run: |
           cmake \
@@ -81,55 +62,41 @@ jobs:
       - name: Build
         run: ninja -C build -j$(nproc)
 
-      # ── 5. AppDir 구성 ────────────────────────────────────────────────
-      - name: Prepare AppDir
+      # ── 5. AppDir 생성 (build-appimage.sh 와 동일) ────────────────────
+      - name: Install into AppDir
         run: |
-          mkdir -p AppDir/usr/bin
-          mkdir -p AppDir/usr/share/nxengine
-          mkdir -p AppDir/usr/share/applications
-          mkdir -p AppDir/usr/share/icons/hicolor/256x256/apps
+          rm -rf AppDir
+          DESTDIR=AppDir ninja -C build install
 
-          cp build/nxengine-evo AppDir/usr/bin/nxengine-evo
-
-          if [ -d data ]; then
-            cp -r data AppDir/usr/share/nxengine/
+      # ── 6. data 파일을 bin 옆에 복사 (build-appimage.sh 핵심 로직) ────
+      # cp -r build/AppDir/usr/share/nxengine/data/ build/AppDir/usr/bin/
+      - name: Copy data next to binary
+        run: |
+          if [ -d "AppDir/usr/share/nxengine/data" ]; then
+            cp -r AppDir/usr/share/nxengine/data/ AppDir/usr/bin/
+            echo "✅ data 폴더를 usr/bin/ 옆에 복사 완료"
+          else
+            echo "⚠️ data 폴더 없음 - cmake install 결과 확인:"
+            find AppDir -type d | sort
           fi
 
-          cat > AppDir/usr/share/applications/org.nxengine.nxengine_evo.desktop << 'EOF'
-          [Desktop Entry]
-          Name=Cave Story (NXEngine Evo)
-          Exec=nxengine-evo
-          Icon=org.nxengine.nxengine_evo
-          Type=Application
-          Categories=Game;
-          EOF
-
-          if [ -f platform/linux/org.nxengine.nxengine_evo.png ]; then
-            cp platform/linux/org.nxengine.nxengine_evo.png \
-               AppDir/usr/share/icons/hicolor/256x256/apps/org.nxengine.nxengine_evo.png
-          elif [ -f screenshot.png ]; then
-            cp screenshot.png \
-               AppDir/usr/share/icons/hicolor/256x256/apps/org.nxengine.nxengine_evo.png
-          fi
-
-      # ── 6. 의존 라이브러리 번들링 ─────────────────────────────────────
-      # linuxdeploy가 nxengine-evo 바이너리의 SDL2, libpng 등
-      # 모든 .so 의존성을 자동 탐지하여 AppDir/usr/lib 에 복사
-      - name: Bundle libraries with linuxdeploy
+      # ── 7. AppImage 빌드 (AppImageBuilder.yml 레시피 사용) ────────────
+      - name: Build AppImage
+        env:
+          APP_ID: ${{ env.APP_ID }}
+          APP_VERSION: ${{ env.APP_VERSION }}
+          PLATFORM_SUFFIX: ${{ env.PLATFORM_SUFFIX }}
+          OUTPUT: ${{ env.OUTPUT }}
         run: |
-          ./linuxdeploy/AppRun \
-            --appdir AppDir \
-            --executable AppDir/usr/bin/nxengine-evo \
-            --desktop-file "AppDir/usr/share/applications/org.nxengine.nxengine_evo.desktop" \
-            --icon-file "AppDir/usr/share/icons/hicolor/256x256/apps/org.nxengine.nxengine_evo.png"
+          appimage-builder --appdir AppDir --recipe AppImageBuilder.yml --skip-test
 
-      # ── 7. AppImage 최종 생성 ─────────────────────────────────────────
-      - name: Create AppImage
+      # ── 8. 파일명 확인 ───────────────────────────────────────────────
+      - name: Verify output
         run: |
-          ARCH=x86_64 ./appimagetool/AppRun AppDir "${{ env.OUTPUT }}"
-          echo "✅ 생성: $(ls ${{ env.OUTPUT }})"
+          ls -lh *.AppImage
+          echo "✅ 생성된 파일: ${{ env.OUTPUT }}"
 
-      # ── 8. 아티팩트 업로드 ───────────────────────────────────────────
+      # ── 9. 아티팩트 업로드 ───────────────────────────────────────────
       - name: Upload AppImage artifact
         uses: actions/upload-artifact@v4
         with:
@@ -137,7 +104,7 @@ jobs:
           path: ${{ env.OUTPUT }}
           retention-days: 30
 
-      # ── 9. 태그 푸시 시 GitHub Release 자동 생성 ─────────────────────
+      # ── 10. 태그 푸시 시 GitHub Release 자동 생성 ────────────────────
       - name: Create GitHub Release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
