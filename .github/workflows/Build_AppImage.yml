@@ -69,18 +69,29 @@ jobs:
           DESTDIR=AppDir ninja -C build install
 
       # ── 6. data 파일을 bin 옆에 복사 (build-appimage.sh 핵심 로직) ────
-      # cp -r build/AppDir/usr/share/nxengine/data/ build/AppDir/usr/bin/
+      # cp -r AppDir/usr/share/nxengine/data/ AppDir/usr/bin/
       - name: Copy data next to binary
         run: |
           if [ -d "AppDir/usr/share/nxengine/data" ]; then
             cp -r AppDir/usr/share/nxengine/data/ AppDir/usr/bin/
-            echo "✅ data 폴더를 usr/bin/ 옆에 복사 완료"
+            echo "data copied to usr/bin/"
           else
-            echo "⚠️ data 폴더 없음 - cmake install 결과 확인:"
+            echo "data folder not found, checking AppDir structure:"
             find AppDir -type d | sort
           fi
 
-      # ── 7. AppImage 빌드 (AppImageBuilder.yml 레시피 사용) ────────────
+      # ── 7. ld-linux 권한 문제 사전 해결 ─────────────────────────────
+      # appimage-builder 1.1.0이 ubuntu-22.04에서 /lib64/ld-linux-x86-64.so.2를
+      # 복사할 때 PermissionError 발생 → sudo로 미리 복사 후 소유권 변경하여 우회
+      - name: Pre-copy ld-linux to AppDir (permission workaround)
+        run: |
+          mkdir -p AppDir/lib64
+          sudo cp -a /lib64/ld-linux-x86-64.so.2 AppDir/lib64/ld-linux-x86-64.so.2
+          sudo chmod 755 AppDir/lib64/ld-linux-x86-64.so.2
+          sudo chown runner:runner AppDir/lib64/ld-linux-x86-64.so.2
+          echo "ld-linux-x86-64.so.2 pre-copied successfully"
+
+      # ── 8. AppImage 빌드 (AppImageBuilder.yml 레시피 사용) ────────────
       - name: Build AppImage
         env:
           APP_ID: ${{ env.APP_ID }}
@@ -90,13 +101,13 @@ jobs:
         run: |
           appimage-builder --appdir AppDir --recipe AppImageBuilder.yml --skip-test
 
-      # ── 8. 파일명 확인 ───────────────────────────────────────────────
+      # ── 9. 파일명 확인 ───────────────────────────────────────────────
       - name: Verify output
         run: |
           ls -lh *.AppImage
-          echo "✅ 생성된 파일: ${{ env.OUTPUT }}"
+          echo "Output: ${{ env.OUTPUT }}"
 
-      # ── 9. 아티팩트 업로드 ───────────────────────────────────────────
+      # ── 10. 아티팩트 업로드 ──────────────────────────────────────────
       - name: Upload AppImage artifact
         uses: actions/upload-artifact@v4
         with:
@@ -104,7 +115,7 @@ jobs:
           path: ${{ env.OUTPUT }}
           retention-days: 30
 
-      # ── 10. 태그 푸시 시 GitHub Release 자동 생성 ────────────────────
+      # ── 11. 태그 푸시 시 GitHub Release 자동 생성 ────────────────────
       - name: Create GitHub Release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
