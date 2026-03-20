@@ -20,12 +20,12 @@ then
 fi
 
 # Extract latest release from AppStream data
-VERSION="v$(xmllint --xpath 'string(/component/releases/release/@version)' "platform/xdg/${APP_ID}.appdata.xml")"
+APP_VERSION="v$(xmllint --xpath 'string(/component/releases/release/@version)' "platform/xdg/${APP_ID}.appdata.xml")"
 
 # override for CI
-if [ ${APPVEYOR_REPO_TAG} == "true" ]
+if [ "${APPVEYOR_REPO_TAG:-}" == "true" ]
 then
-    VERSION="${APPVEYOR_REPO_TAG_NAME}"
+    APP_VERSION="${APPVEYOR_REPO_TAG_NAME}"
 fi
 
 MACHINE="$(uname -m)"
@@ -33,54 +33,24 @@ MACHINE="$(uname -m)"
 # Download required dependencies
 build-scripts/utils/common.download-extern.sh
 
-# Additionally download recent version of the LinuxDeploy AppImage utility (no checksum verification since file regularily changes when updated to newer versions)
-test -e "extern/linuxdeploy.AppImage" || wget "https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-${MACHINE}.AppImage" -O "extern/linuxdeploy.AppImage"
-chmod +x extern/linuxdeploy.AppImage
+# Additionally download recent version of the appimage-builder AppImage utility (no checksum verification since file regularily changes when updated to newer versions)
+test -e "extern/appimage-builder.AppImage" || wget "https://github.com/AppImageCrafters/appimage-builder/releases/download/v1.1.0/appimage-builder-1.1.0-x86_64.AppImage" -O "extern/appimage-builder.AppImage"
+chmod +x extern/appimage-builder.AppImage
 
 # Build NXEngine-Evo
 if ! ${SKIP_BUILD};
 then
 	rm -rf build
-	cmake -GNinja -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=build/AppDir/usr -Bbuild -H.
+	cmake -GNinja -DCMAKE_BUILD_TYPE=Release -DPORTABLE=ON -DCMAKE_INSTALL_PREFIX=/usr -Bbuild -H.
 	ninja -Cbuild
 fi
 
 # Generate AppImage filesystem image directory
-ninja -Cbuild install
-build-scripts/utils/common.install-extern.sh build/AppDir/usr/share/nxengine build/nxextract
+rm -rf AppDir
+DESTDIR=AppDir ninja -Cbuild install
+build-scripts/utils/common.install-extern.sh build/AppDir/usr/bin/ build/nxextract
+cp -r build/AppDir/usr/share/nxengine/data/ build/AppDir/usr/bin/
 
-# Work around GH/AppImage/AppImageKit#856
-mkdir -p build/bin
-for toolname in appstreamcli appstream-util;
-do
-	# START OF INLINE WORKAROUND SCRIPT #
-	cat >"build/bin/${toolname}" <<'EOF'
-#!/bin/bash
-set -eu -o pipefail
-SCRIPTDIR="${0%/*}"
-
-# Remove current directory of script from search path
-OLDIFS="${IFS}"
-OLDPATH="${PATH}"
-IFS=":"
-PATH=""
-for path in ${OLDPATH};
-do
-	if [[ ${path} != ${SCRIPTDIR} ]];
-	then
-		PATH+="${PATH+:}${path}"
-	fi
-done
-IFS="${OLDIFS}"
-export PATH
-
-# Re-exec to real tool without any LD_LIBRARY_PATH set (works around GH/AppImage/AppImageKit#856)
-unset LD_LIBRARY_PATH
-exec "${0##*/}" "$@"
-EOF
-	# END OF INLINE WORKAROUND SCRIPT #
-	chmod +x "build/bin/${toolname}"
-done
 export PATH="${PWD}/build/bin${PATH+:}${PATH:-}"
 
 PLATFORM_SUFFIX=""
@@ -96,11 +66,9 @@ case "${MACHINE}" in
 	;;
 esac
 
-export VERSION
-export OUTPUT="NXEngine-Evo-${VERSION}-Linux-${PLATFORM_SUFFIX}.AppImage"
+export APP_VERSION
+export PLATFORM_SUFFIX
+export OUTPUT="NXEngine-Evo-${APP_VERSION}-Linux-${PLATFORM_SUFFIX}.AppImage"
 rm -f "${OUTPUT}"
-extern/linuxdeploy.AppImage \
-	--appdir=build/AppDir \
-	--desktop-file="platform/xdg/${APP_ID}.desktop" \
-	--icon-file="platform/xdg/${APP_ID}.png" \
-	--output=appimage
+
+extern/appimage-builder.AppImage --appdir build/AppDir/

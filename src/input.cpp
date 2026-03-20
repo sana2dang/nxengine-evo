@@ -16,7 +16,6 @@ bool inputs[INPUT_COUNT];
 bool lastinputs[INPUT_COUNT];
 in_action last_sdl_action;
 SDL_Joystick *joy;
-SDL_Haptic *haptic;
 
 int ACCEPT_BUTTON = JUMPKEY;
 int DECLINE_BUTTON = FIREKEY;
@@ -71,10 +70,10 @@ bool input_init(void)
   mappings[RIGHTKEY].jbut     = 18;
   mappings[DOWNKEY].jbut      = 19;
 
-  mappings[FIREKEY].jbut      = 0;  // A
-  mappings[JUMPKEY].jbut      = 1;  // B
-  mappings[MAPSYSTEMKEY].jbut = 2;  // X
-  mappings[INVENTORYKEY].jbut = 3;  // Y
+  mappings[FIREKEY].jbut      = 1;  // A
+  mappings[JUMPKEY].jbut      = 0;  // B
+  mappings[MAPSYSTEMKEY].jbut = 3;  // X
+  mappings[INVENTORYKEY].jbut = 2;  // Y
 
   mappings[PREVWPNKEY].jbut   = 6;  // L
   mappings[NEXTWPNKEY].jbut   = 7;  // R
@@ -95,18 +94,12 @@ bool input_init(void)
   mappings[F10KEY].key = SDLK_F10;
   mappings[F11KEY].key = SDLK_F11;
   mappings[F12KEY].key = SDLK_F12;
-#if defined(DEBUG)
   mappings[FREEZE_FRAME_KEY].key  = SDLK_SPACE;
   mappings[FRAME_ADVANCE_KEY].key = SDLK_b;
   mappings[DEBUG_FLY_KEY].key     = SDLK_v;
-#else
-  mappings[FREEZE_FRAME_KEY].key  = 0;
-  mappings[FRAME_ADVANCE_KEY].key = 0;
-  mappings[DEBUG_FLY_KEY].key     = 0;
-#endif
   mappings[ENTERKEY].key = SDLK_RETURN;
 
-  SDL_InitSubSystem(SDL_INIT_JOYSTICK | SDL_INIT_HAPTIC);
+  SDL_InitSubSystem(SDL_INIT_JOYSTICK);
   if (SDL_NumJoysticks() > 0)
   {
     // Open joystick
@@ -119,16 +112,6 @@ bool input_init(void)
       LOG_INFO("Number of Axes: {}", SDL_JoystickNumAxes(joy));
       LOG_INFO("Number of Buttons: {}", SDL_JoystickNumButtons(joy));
       LOG_INFO("Number of Balls: {}", SDL_JoystickNumBalls(joy));
-      haptic = SDL_HapticOpenFromJoystick(joy);
-      if (haptic == NULL)
-      {
-        LOG_INFO("No force feedback support");
-      }
-      else
-      {
-        if (SDL_HapticRumbleInit(haptic) != 0)
-          LOG_WARN("Coiuldn't init simple rumble");
-      }
     }
     else
     {
@@ -140,8 +123,8 @@ bool input_init(void)
 
 void rumble(float str, uint32_t len)
 {
-  if (haptic != NULL && settings->rumble)
-    SDL_HapticRumblePlay(haptic, str, len);
+  if (settings->rumble)
+    SDL_JoystickRumble(joy, 0xFFFF * str, 0xFFFF * str, len);
 }
 
 // set the SDL key that triggers an input
@@ -235,9 +218,10 @@ const std::string input_get_name(int index)
 
 void input_set_mappings(in_action *array)
 {
-  memset(mappings, 0xff, sizeof(mappings));
-  for (int i = 0; i < INPUT_COUNT; i++)
-    mappings[i] = array[i];
+  for (int i = 0; i < INPUT_COUNT; i++) {
+    if (array[i].key > 0 || array[i].jbut != -1 || array[i].jaxis != -1 || array[i].jhat != -1)
+      mappings[i] = array[i];
+  }
 }
 
 /*

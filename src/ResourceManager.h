@@ -22,10 +22,23 @@ public:
   static ResourceManager *getInstance();
   static bool fileExists(const std::string &filename);
 
+  /**
+   * Returns the base path to binary
+   */
+  std::string getBasePath();
+
+  /**
+   * Returns the path to the directory where user-data resides
+   */
+  std::string getUserPrefPath();
+
   void shutdown();
-  std::string getLocalizedPath(const std::string &filename);
+  std::string getPath(const std::string &filename, bool localized = true);
+
   std::string getPrefPath(const std::string &filename);
+
   std::string getPathForDir(const std::string &dir);
+
   std::vector<std::string> &languages();
   Mod& mod(std::string& name);
   void setMod(std::string name);

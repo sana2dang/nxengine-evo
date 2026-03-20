@@ -1,6 +1,6 @@
 image:
   - macos-mojave
-  - Ubuntu1804
+  - Ubuntu2004
   - Visual Studio 2017
 
 version: 2.6.5.{build}
@@ -55,7 +55,7 @@ for:
 -
   matrix:
     only:
-      - image: Ubuntu1804
+      - image: Ubuntu2004
 
   install:
     - sudo apt update
@@ -75,7 +75,7 @@ for:
 
   install:
     - brew update
-    - brew install sdl2 sdl2_mixer sdl2_image libjpeg libpng ninja
+    - brew install sdl2 sdl2_mixer sdl2_image libjpeg libpng ninja coreutils
 
   build_script:
     - cmake -GNinja -DCMAKE_BUILD_TYPE=Release -Bbuild -H.

@@ -88,14 +88,10 @@ BulletInfo bullet_table[] = {
 
     {0, 0, 0, 0, 0, 0, 0, 0, NXE::Sound::SFX::SND_NULL}};
 
-// resets anything like charging states etc on player re-init (Player::Init)
+// resets weapons on player re-init (Player::Init)
 void PResetWeapons()
 {
-  Weapon *spur      = &player->weapons[WPN_SPUR];
-  spur->chargetimer = 0;
-  spur->level       = 0;
-  spur->xp          = 0;
-
+  player->weapons[WPN_SPUR].resetSpur = true;
   init_whimstar(&player->whimstar);
 }
 
@@ -221,11 +217,7 @@ static void PHandleSpur(void)
   Weapon *spur                = &player->weapons[WPN_SPUR];
 
   if (player->curWeapon != WPN_SPUR)
-  {
-    spur->level = 0;
-    spur->xp    = 0;
     return;
-  }
 
   if (pinputs[FIREKEY])
   {
@@ -238,14 +230,10 @@ static void PHandleSpur(void)
       {
         NXE::Sound::SoundManager::getInstance()->playSfx(NXE::Sound::SFX::SND_SPUR_MAXED);
       }
-      else
+      else if (++spur->chargetimer & 2)
       {
-        spur->chargetimer++;
-        if (spur->chargetimer / 2 & 1)
-        {
-          NXE::Sound::SoundManager::getInstance()->playSfx(
-              (NXE::Sound::SFX)((int)NXE::Sound::SFX::SND_SPUR_CHARGE_1 + spur->level));
-        }
+        NXE::Sound::SoundManager::getInstance()->playSfx(
+            (NXE::Sound::SFX)((int)NXE::Sound::SFX::SND_SPUR_CHARGE_1 + spur->level));
       }
     }
     else
@@ -257,15 +245,10 @@ static void PHandleSpur(void)
   }
   else
   {
-    if (spur->chargetimer)
+    if (spur->level > 0 && can_fire_spur())
     {
-      if (spur->level > 0 && can_fire_spur())
-      {
-        int level = IsWeaponMaxed() ? 2 : (spur->level - 1);
-        FireSimpleBulletOffset(OBJ_SPUR_SHOT, B_SPUR_L1 + level, -4 * CSFI, 0);
-      }
-
-      spur->chargetimer = 0;
+      int level = IsWeaponMaxed() ? 2 : (spur->level - 1);
+      FireSimpleBulletOffset(OBJ_SPUR_SHOT, B_SPUR_L1 + level, -4 * CSFI, 0);
     }
 
     spur->level = 0;
@@ -283,10 +266,36 @@ void PDoWeapons(void)
   if (player->inputs_locked)
     return; // should prevent from firing in cutscenes
 
-  if (justpushed(PREVWPNKEY))
+  bool prev = justpushed(PREVWPNKEY), next = justpushed(NEXTWPNKEY);
+  int wpn = player->curWeapon;
+  if (prev)
     stat_PrevWeapon();
-  if (justpushed(NEXTWPNKEY))
+  if (next)
     stat_NextWeapon();
+  int cwpn = player->curWeapon;
+
+  if (player->weapons[WPN_SPUR].hasWeapon)
+  {
+    bool &resetSpur = player->weapons[WPN_SPUR].resetSpur;
+
+    // 1. When changing weapons using the previous/next weapon keys ...
+    // 2. Spur level should be reset when switching from it to another weapon
+    // 3. ... or when switching to it when fire button is not pressed.
+    // 4. When using the item screen, Spur level should be reset only when ...
+    // 5. it's the current weapon, the fire button is not pressed
+    // 6. ... and we switched recently between some non-Spur weapons without using the menu.
+    //   (     1.     )     (      2.     )    (                  3.                 )
+    if (((prev || next) && (wpn == WPN_SPUR || (cwpn == WPN_SPUR && !pinputs[FIREKEY])))
+        //  (             4.             )    (                5.                )    (   6.  )
+        || (player->inputs_locked_lasttime && wpn == WPN_SPUR && !pinputs[FIREKEY] && resetSpur))
+    {
+      player->weapons[WPN_SPUR].level = 0;
+      player->weapons[WPN_SPUR].xp    = 0;
+      resetSpur = false;
+    }
+    if (prev || next || wpn == WPN_SPUR)
+      resetSpur = wpn != WPN_SPUR && cwpn != WPN_SPUR;
+  }
 
   // firing weapon
   if (pinputs[FIREKEY])

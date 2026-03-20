@@ -40,21 +40,6 @@ using namespace NXE::Utils;
 #if defined(__VITA__)
 // increase default allowed heap size on Vita
 int _newlib_heap_size_user = 100 * 1024 * 1024;
-#include <psp2/kernel/threadmgr.h>
-extern "C"
-{
-    unsigned int sleep(unsigned int seconds)
-    {
-        sceKernelDelayThread(seconds*1000*1000);
-        return 0;
-    }
-
-    int usleep(useconds_t usec)
-    {
-        sceKernelDelayThread(usec);
-        return 0;
-    }
-}
 #endif
 
 using namespace NXE::Sound;
@@ -294,15 +279,7 @@ int main(int argc, char *argv[])
   bool error            = false;
   bool freshstart;
 
-#if defined(_WIN32)
-  char *basepath = SDL_GetBasePath();
-  _chdir(basepath);
-  SDL_free(basepath);
-#elif not defined(__VITA__) && not defined(__SWITCH__)
-  char *basepath = SDL_GetBasePath();
-  chdir(basepath);
-  SDL_free(basepath);
-
+#if defined(UNIX_LIKE)
   // On platforms where SDL may use Wayland (Linux and BSD), setting the icon from a surface doesn't work and
   // the request will be ignored. Instead apps submit their app ID using the xdg-shell Wayland protocol and
   // then the desktop looks up the icon based on this.

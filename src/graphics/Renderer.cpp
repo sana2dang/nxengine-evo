@@ -133,7 +133,7 @@ bool Renderer::initVideo()
 
   LOG_INFO("Renderer::initVideo: using: {} renderer", info.name);
 
-  std::string spotpath = ResourceManager::getInstance()->getLocalizedPath("spot.png");
+  std::string spotpath = ResourceManager::getInstance()->getPath("spot.png");
 
   SDL_Surface *image;
   image = IMG_Load(spotpath.c_str());
@@ -226,6 +226,10 @@ const Graphics::gres_t *Renderer::getResolutions(bool full_list)
          {(char *)"1600x1200", 1600, 1200, 320, 240, 5, false, true},
          // widescreen
          {(char *)"480x272", 480, 272, 480, 272, 1, true, true},
+         {(char *)"800x480", 800, 480, 400, 240, 2, true, true},
+         {(char *)"1024x600", 1024, 600, 512, 300, 2, true, true},
+         {(char *)"1280x720", 1280, 720, 427, 240, 3, true, true},
+         {(char *)"1280x800", 1280, 800, 427, 267, 3, true, true},
          {(char *)"1360x768", 1360, 768, 454, 256, 3, true, true},
          {(char *)"1366x768", 1366, 768, 455, 256, 3, true, true},
          {(char *)"1440x900", 1440, 900, 480, 300, 3, true, true},
@@ -271,7 +275,7 @@ void Renderer::showLoadingScreen()
 {
   Surface loading;
 
-  if (!loading.loadImage(ResourceManager::getInstance()->getLocalizedPath("Loading.pbm")))
+  if (!loading.loadImage(ResourceManager::getInstance()->getPath("Loading.pbm")))
     return;
 
   int x = (screenWidth / 2) - (loading.width() / 2);

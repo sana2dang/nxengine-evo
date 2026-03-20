@@ -1,11 +1,11 @@
 if($env:APPVEYOR_REPO_TAG -eq "true") {
-  Invoke-WebRequest "https://github.com/nxengine/translations/releases/download/v1.12/all.zip" -Out all.zip
+  Invoke-WebRequest "https://github.com/nxengine/translations/releases/download/v1.14/all.zip" -Out all.zip
   7z x .\all.zip
   rm .\all.zip
 
   mkdir release
   cd release
-  wget http://www.cavestory.org/downloads/cavestoryen.zip -outfile cavestoryen.zip
+  wget https://sarcasticat.com/cavestoryen.zip -outfile cavestoryen.zip
   7z x .\cavestoryen.zip
   rm .\cavestoryen.zip
   mkdir NXEngine

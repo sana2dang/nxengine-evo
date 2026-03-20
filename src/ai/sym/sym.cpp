@@ -488,12 +488,12 @@ void ai_hidden_powerup(Object *o)
     SmokeClouds(o, 8, 8, 8, NULL);
     NXE::Sound::SoundManager::getInstance()->playSfx(NXE::Sound::SFX::SND_EXPL_SMALL);
 
-    o->ChangeType((o->dir == LEFT) ? OBJ_HEART : OBJ_MISSILE);
-    if (o->type == OBJ_HEART)
-    {
-      o->x += (3 * CSFI);
-      o->y += (4 * CSFI);
-    }
+    int x = o->x;
+    int y = o->y;
+    int type = (o->dir == LEFT) ? OBJ_HEART : OBJ_MISSILE;
+
+    o->Delete();
+    CreateObject(x, y, type);
   }
 }
 
@@ -790,7 +790,7 @@ void ai_press(Object *o)
         SmokeSide(o, 4, DOWN);
         quake(10);
 
-        o->state  = 11;
+        o->state  = 0;
         o->frame  = 0;
         o->damage = 0;
         o->flags |= FLAG_SOLID_BRICK;
